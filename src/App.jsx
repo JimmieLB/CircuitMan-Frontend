@@ -1,89 +1,171 @@
-import { useEffect, useRef, useState } from 'react';
-import { loadCv } from './helpers/opencv';
-import { useCamera } from './helpers/useCamera';
-import { buildHoles, orderCorners, warpBoard, BOARD_W, BOARD_H } from './helpers/board';
+import { useEffect, useState } from 'react';
+import './App.css';
+import { PARTS, pinLabel } from './circuit/parts';
+import { buildNetlist } from './circuit/netlist';
+import BreadboardEditor from './editor/BreadboardEditor';
+import Schematic from './editor/Schematic';
+import ScanView from './scan/ScanView';
 
-const KEY = 'breadboard-corners';
-const holes = buildHoles();
+const STORE = 'breadboard-circuit';
+
+function loadDoc() {
+  try {
+    return JSON.parse(localStorage.getItem(STORE)) ?? { components: [], photo: null };
+  } catch {
+    return { components: [], photo: null };
+  }
+}
 
 export default function App() {
-  const videoRef = useCamera();
-  const snapRef = useRef(null);   // full camera frame, used for calibration clicks
-  const outRef = useRef(null);    // warped board with hole overlay
-  const [cv, setCv] = useState(null);
-  const [corners, setCorners] = useState(() =>
-    JSON.parse(localStorage.getItem(KEY) ?? 'null'));
-  const [clicks, setClicks] = useState([]);
-  const [calibrating, setCalibrating] = useState(false);
+  const [mode, setMode] = useState('build');
+  const [{ components, photo }, setDoc] = useState(loadDoc);
+  const [selectedId, setSelectedId] = useState(null);
+  const [tool, setTool] = useState(null);
+  const [showPhoto, setShowPhoto] = useState(true);
+  const [note, setNote] = useState('');
 
-  useEffect(() => { loadCv().then(setCv); }, []);
+  useEffect(() => {
+    try { localStorage.setItem(STORE, JSON.stringify({ components, photo })); } catch { /* storage full or blocked */ }
+  }, [components, photo]);
 
-  function grabFrame() {
-    const v = videoRef.current, c = snapRef.current;
-    c.width = v.videoWidth;
-    c.height = v.videoHeight;
-    c.getContext('2d').drawImage(v, 0, 0);
-    return c;
+  const netlist = buildNetlist(components);
+  const selected = components.find(c => c.id === selectedId);
+
+  const setComponents = cs => setDoc(d => ({ ...d, components: cs }));
+  const updateComponent = (id, patch) =>
+    setComponents(components.map(c => (c.id === id ? { ...c, ...patch } : c)));
+  const removeComponent = id => {
+    setComponents(components.filter(c => c.id !== id));
+    setSelectedId(null);
+  };
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.target.closest('input, textarea')) return;
+      if (e.key === 'Escape') { setTool(null); setSelectedId(null); }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) removeComponent(selectedId);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  function pickTool(t) {
+    setTool(t);
+    setSelectedId(null);
   }
 
-  function startCalibration() {
-    grabFrame();
-    setClicks([]);
-    setCalibrating(true);
-  }
-
-  function onSnapClick(e) {
-    if (!calibrating) return;
-    const c = snapRef.current, r = c.getBoundingClientRect();
-    // convert from displayed size to the canvas's real pixel size
-    const p = {
-      x: ((e.clientX - r.left) * c.width) / r.width,
-      y: ((e.clientY - r.top) * c.height) / r.height,
-    };
-    const ctx = c.getContext('2d');
-    ctx.fillStyle = 'red';
-    ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.fill();
-
-    const next = [...clicks, p];
-    if (next.length < 4) return setClicks(next);
-
-    const ordered = orderCorners(next);
-    localStorage.setItem(KEY, JSON.stringify(ordered));
-    setCorners(ordered);
-    setClicks([]);
-    setCalibrating(false);
-  }
-
-  function capture() {
-    if (!cv || !corners) return;
-    const src = cv.imread(grabFrame());
-    const warped = warpBoard(cv, src, corners);
-    for (const h of holes)
-      cv.circle(warped, new cv.Point(h.x, h.y), 3, [255, 0, 0, 255], -1);
-    cv.imshow(outRef.current, warped);
-    src.delete();
-    warped.delete();
+  function onScanned(scan) {
+    if (components.length && !confirm('Replace the current circuit with the scanned one?')) return;
+    setDoc({ components: scan.components, photo: scan.photo });
+    setNote(scan.note);
+    setShowPhoto(true);
+    setSelectedId(null);
+    setTool(null);
+    setMode('build');
   }
 
   return (
-    <div style={{ padding: 16 }}>
-      <video ref={videoRef} muted playsInline
-             style={{ width: 640, display: calibrating ? 'none' : 'block' }} />
-      <canvas ref={snapRef} onClick={onSnapClick}
-              style={{ width: 640, cursor: 'crosshair',
-                       display: calibrating ? 'block' : 'none' }} />
+    <div className="app">
+      <header>
+        <h1>Breadboard Studio</h1>
+        <nav className="tabs">
+          <button className={mode === 'build' ? 'on' : ''} onClick={() => setMode('build')}>Build</button>
+          <button className={mode === 'scan' ? 'on' : ''} onClick={() => setMode('scan')}>Scan</button>
+        </nav>
+      </header>
 
-      <div style={{ margin: '8px 0' }}>
-        <button onClick={startCalibration}>
-          {corners ? 'Recalibrate' : 'Calibrate'}
-        </button>{' '}
-        <button onClick={capture} disabled={!cv || !corners}>Capture</button>{' '}
-        {calibrating && <span>Click the board's 4 corners ({clicks.length}/4)</span>}
-        {!cv && <span> Loading OpenCV…</span>}
-      </div>
+      {mode === 'scan' ? <ScanView onScanned={onScanned} /> : (
+        <div className="build">
+          <aside className="palette">
+            <h2>Parts</h2>
+            <button className={!tool ? 'on' : ''} onClick={() => pickTool(null)}>Select</button>
+            {Object.entries(PARTS).map(([type, p]) => (
+              <button key={type} className={tool === type ? 'on' : ''} onClick={() => pickTool(type)}>
+                <span className="swatch" style={{ background: p.color }} />{p.label}
+              </button>
+            ))}
+            <hr />
+            {photo && (
+              <>
+                <label className="check">
+                  <input type="checkbox" checked={showPhoto} onChange={e => setShowPhoto(e.target.checked)} />
+                  Show scanned photo
+                </label>
+                <button onClick={() => setDoc(d => ({ ...d, photo: null }))}>Remove photo</button>
+              </>
+            )}
+            <button disabled={!components.length}
+              onClick={() => { if (confirm('Remove every part?')) { setComponents([]); setSelectedId(null); } }}>
+              Clear circuit
+            </button>
+          </aside>
 
-      <canvas ref={outRef} width={BOARD_W} height={BOARD_H}
-              style={{ maxWidth: '100%' }} />
+          <main>
+            {note && (
+              <p className="note">{note} <button onClick={() => setNote('')} aria-label="Dismiss">×</button></p>
+            )}
+            <section>
+              <h2>Breadboard</h2>
+              <BreadboardEditor key={tool ?? 'select'} components={components} onChange={setComponents}
+                netlist={netlist} selectedId={selectedId} onSelect={setSelectedId} tool={tool}
+                photo={showPhoto ? photo : null} />
+            </section>
+            <section>
+              <h2>Schematic</h2>
+              <Schematic components={components} netlist={netlist}
+                selectedId={selectedId} onSelect={setSelectedId} />
+            </section>
+          </main>
+
+          <aside className="inspector">
+            <h2>Properties</h2>
+            {selected ? (
+              <div className="props">
+                <p><strong>{selected.ref}</strong> {PARTS[selected.type].label}</p>
+                {selected.type !== 'wire' && (
+                  <>
+                    <label>Reference
+                      <input value={selected.ref} onChange={e => updateComponent(selected.id, { ref: e.target.value })} />
+                    </label>
+                    <label>Value
+                      <input value={selected.value} onChange={e => updateComponent(selected.id, { value: e.target.value })} />
+                    </label>
+                  </>
+                )}
+                <table>
+                  <thead><tr><th>Pin</th><th>Hole</th><th>Net</th></tr></thead>
+                  <tbody>
+                    {selected.pins.map((hole, i) => {
+                      const net = netlist.pinNet.get(`${selected.id}:${i}`);
+                      return (
+                        <tr key={i}>
+                          <td>{PARTS[selected.type].pins[i]}</td>
+                          <td className="mono">{hole}</td>
+                          <td style={{ color: net?.color }}>{net?.name}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <button className="danger" onClick={() => removeComponent(selected.id)}>Delete part</button>
+              </div>
+            ) : <p className="muted">Click a part on the breadboard or schematic.</p>}
+
+            <h2>Nets</h2>
+            {netlist.nets.length ? (
+              <ul className="nets">
+                {netlist.nets.map(net => (
+                  <li key={net.name} className={net.floating ? 'floating' : ''}>
+                    <strong style={{ color: net.color }}>{net.name}</strong>{' '}
+                    {net.pins.map(p => pinLabel(p.comp, p.pin)).join(', ') || '(wires only)'}
+                    {net.floating && <em> unconnected</em>}
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="muted">No connections yet.</p>}
+          </aside>
+        </div>
+      )}
     </div>
   );
 }
