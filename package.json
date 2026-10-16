@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@techstark/opencv-js": "^5.0.0-release.1",
+    "eecircuit-engine": "1.8.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

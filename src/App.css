@@ -128,3 +128,17 @@ header h1 { font-size: 22px; }
 .toolbar span { color: var(--muted); font-size: 14px; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .preview { max-width: 100%; border-radius: 8px; }
+
+/* ---------- simulation ---------- */
+
+.part .glow { pointer-events: none; }
+.part .warn { fill: var(--danger); font: 700 13px var(--sans); }
+.sym.lit .led-tri { fill: var(--led); }
+.sym .reading { fill: var(--text-h); font: 600 12px var(--mono); }
+.sym .reading.over { fill: var(--danger); }
+.reading { margin: 0; font-size: 13px; color: var(--text-h); }
+.reading.over { color: var(--danger); font-weight: 600; }
+.sim-status p { margin: 0 0 4px; font-size: 13px; }
+.sim-status.error p:first-child { color: var(--danger); }
+.sim-status.running p:first-child { color: var(--muted); }
+.volts { font-family: var(--mono); color: var(--text-h); }

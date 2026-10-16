@@ -5,7 +5,7 @@ const range = n => Array.from({ length: n }, (_, i) => String(i + 1));
 export const PARTS = {
   wire:       { label: 'Jumper wire',   pins: ['1', '2'], color: '#e0a800' },
   resistor:   { label: 'Resistor',      pins: ['1', '2'], prefix: 'R',  value: '220Ω',  color: '#d8b98a', ink: '#3b2a12' },
-  led:        { label: 'LED',           pins: ['A', 'K'], prefix: 'D',  value: 'red',   color: '#ff5a5a', ink: '#fff' },
+  led:        { label: 'LED',           pins: ['A', 'K'], prefix: 'D',  value: 'red',   color: '#ff5a5a', ink: '#1b1b1b' },
   capacitor:  { label: 'Capacitor',     pins: ['+', '−'], prefix: 'C',  value: '10µF',  color: '#3d7fd1', ink: '#fff' },
   button:     { label: 'Push button',   pins: range(4),   prefix: 'SW', value: '',      color: '#4a4a4a', ink: '#fff' },
   transistor: { label: 'Transistor',    pins: ['E', 'B', 'C'], prefix: 'Q', value: 'NPN', color: '#2b2b2b', ink: '#fff' },
@@ -14,6 +14,14 @@ export const PARTS = {
   ic_dip8:    { label: 'IC (DIP-8)',    pins: range(8),   prefix: 'U',  value: 'NE555',  color: '#1e1e1e', ink: '#eee', dip: true },
   ic_dip14:   { label: 'IC (DIP-14)',   pins: range(14),  prefix: 'U',  value: '74HC00', color: '#1e1e1e', ink: '#eee', dip: true },
 };
+
+// An LED's colour comes from its value text ("red", "green 5mm", …).
+export const LED_COLORS = {
+  red: '#ff3b30', orange: '#ff9f0a', yellow: '#ffd60a',
+  green: '#30d158', blue: '#0a84ff', white: '#f2f2f2',
+};
+export const ledColorName = value =>
+  Object.keys(LED_COLORS).find(k => value.toLowerCase().includes(k)) ?? 'red';
 
 export function nextRef(type, components) {
   const prefix = PARTS[type].prefix;

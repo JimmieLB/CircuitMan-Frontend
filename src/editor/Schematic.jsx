@@ -1,10 +1,11 @@
-import { PARTS } from '../circuit/parts';
+import { PARTS, LED_COLORS, ledColorName } from '../circuit/parts';
+import { formatCurrent } from '../sim/spice';
 
 const CELL_W = 220, CELL_H = 170, MAX_COLS = 4;
 
 // Net-label schematic: each part is drawn as its symbol, and every pin is
 // tagged with the name of the net it's on. Same name (and colour) = connected.
-export default function Schematic({ components, netlist, selectedId, onSelect }) {
+export default function Schematic({ components, netlist, sim, selectedId, onSelect }) {
   const parts = components.filter(c => c.type !== 'wire');
   if (!parts.length)
     return <p className="empty">Place parts on the breadboard (or scan one) and the schematic appears here.</p>;
@@ -15,8 +16,13 @@ export default function Schematic({ components, netlist, selectedId, onSelect })
   return (
     <svg className="schematic" viewBox={`0 0 ${cols * CELL_W} ${rows * CELL_H}`}
       width={cols * CELL_W} onClick={() => onSelect(null)}>
+      <defs>
+        <filter id="sch-glow" x="-100%" y="-100%" width="300%" height="300%">
+          <feGaussianBlur stdDeviation="8" />
+        </filter>
+      </defs>
       {parts.map((c, i) => (
-        <SymbolCell key={c.id} c={c} netlist={netlist}
+        <SymbolCell key={c.id} c={c} netlist={netlist} led={sim.leds.get(c.id)}
           x={(i % cols) * CELL_W} y={Math.floor(i / cols) * CELL_H}
           selected={c.id === selectedId} onSelect={() => onSelect(c.id)} />
       ))}
@@ -24,17 +30,28 @@ export default function Schematic({ components, netlist, selectedId, onSelect })
   );
 }
 
-function SymbolCell({ c, netlist, x, y, selected, onSelect }) {
+function SymbolCell({ c, netlist, led, x, y, selected, onSelect }) {
   const sym = symbolFor(c);
   const [lx, ly, anchor = 'middle'] = sym.label;
+  const glow = c.type === 'led' && LED_COLORS[ledColorName(c.value)];
+  const cls = ['sym', selected && 'selected', led?.on && 'lit'].filter(Boolean).join(' ');
 
   return (
-    <g transform={`translate(${x},${y})`} className={`sym${selected ? ' selected' : ''}`}
+    <g transform={`translate(${x},${y})`} className={cls} style={{ '--led': glow }}
       onClick={e => { e.stopPropagation(); onSelect(); }}>
       <rect className="cell" x={4} y={4} width={CELL_W - 8} height={CELL_H - 8} rx={10} />
+      {led?.on && (
+        <circle cx={108} cy={85} r={20 + 16 * led.brightness} fill={glow}
+          opacity={0.3 + 0.6 * led.brightness} filter="url(#sch-glow)" />
+      )}
       <g className="stroke">{sym.body}</g>
       <text x={lx} y={ly} textAnchor={anchor} className="ref">{c.ref}</text>
       <text x={lx} y={ly + 15} textAnchor={anchor} className="val">{c.value}</text>
+      {led && (
+        <text x={lx} y={ly + 30} textAnchor={anchor} className={led.over ? 'reading over' : 'reading'}>
+          {led.over ? '⚠ ' : ''}{formatCurrent(led.current)}
+        </text>
+      )}
       {sym.pins.map(([px, py], i) => {
         const net = netlist.pinNet.get(`${c.id}:${i}`);
         const [tx, ty, ta] =
@@ -68,7 +85,7 @@ function symbolFor(c) {
         pins: [[50, 85], [170, 85]], label: [110, 122],
         body: <>
           <path d="M50 85H95M122 85H170M122 70V100" />
-          <path d="M95 70V100L122 85Z" className="fill" />
+          <path d="M95 70V100L122 85Z" className="fill led-tri" />
           <path d="M110 64l9-9m-5 0h5v5M120 68l9-9m-5 0h5v5" />
         </>,
       };

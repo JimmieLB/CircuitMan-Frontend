@@ -1,12 +1,13 @@
 import { useRef, useState } from 'react';
 import { BOARD_W, BOARD_H } from '../helpers/board';
 import { HOLES, HOLE_BY_ID, snapToHole } from '../circuit/holes';
-import { PARTS, makeComponent, dipPins } from '../circuit/parts';
+import { PARTS, LED_COLORS, ledColorName, makeComponent, dipPins } from '../circuit/parts';
+import { formatCurrent } from '../sim/spice';
 
 const ROW_LABELS = { a: 100, b: 120, c: 140, d: 160, e: 180, f: 240, g: 260, h: 280, i: 300, j: 320 };
 
 export default function BreadboardEditor({
-  components, onChange, netlist, selectedId, onSelect, tool, photo,
+  components, onChange, netlist, sim, selectedId, onSelect, tool, photo,
 }) {
   const svgRef = useRef(null);
   const [hover, setHover] = useState(null);
@@ -49,6 +50,11 @@ export default function BreadboardEditor({
     <div className="board-editor">
       <svg ref={svgRef} viewBox={`0 0 ${BOARD_W} ${BOARD_H}`} className={tool ? 'board placing' : 'board'}
         onMouseMove={onMove} onMouseLeave={() => setHover(null)} onClick={onClick}>
+        <defs>
+          <filter id="led-glow" x="-100%" y="-100%" width="300%" height="300%">
+            <feGaussianBlur stdDeviation="9" />
+          </filter>
+        </defs>
         {photo
           ? <image href={photo} width={BOARD_W} height={BOARD_H} />
           : <BoardBackground />}
@@ -59,7 +65,7 @@ export default function BreadboardEditor({
         ))}
 
         {components.map(c => (
-          <PartOnBoard key={c.id} c={c} netlist={netlist} selected={c.id === selectedId}
+          <PartOnBoard key={c.id} c={c} netlist={netlist} led={sim.leds.get(c.id)} selected={c.id === selectedId}
             interactive={!tool} onSelect={() => onSelect(c.id)} />
         ))}
 
@@ -95,8 +101,9 @@ function BoardBackground() {
   );
 }
 
-function PartOnBoard({ c, netlist, selected, interactive, onSelect }) {
+function PartOnBoard({ c, netlist, led, selected, interactive, onSelect }) {
   const part = PARTS[c.type];
+  const fill = c.type === 'led' ? LED_COLORS[ledColorName(c.value)] : part.color;
   const pts = c.pins.map(id => HOLE_BY_ID.get(id));
   const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
   const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
@@ -134,9 +141,17 @@ function PartOnBoard({ c, netlist, selected, interactive, onSelect }) {
   } else {
     body = (
       <>
+        {led?.on && (
+          <circle cx={cx} cy={cy} r={22 + 22 * led.brightness} fill={fill}
+            opacity={0.35 + 0.55 * led.brightness} filter="url(#led-glow)" className="glow" />
+        )}
         {pts.map((p, i) => <line key={i} x1={p.x} y1={p.y} x2={cx} y2={cy} className="lead" />)}
-        <rect x={cx - 24} y={cy - 12} width={48} height={24} rx={6} fill={part.color} className="body" />
+        <rect x={cx - 24} y={cy - 12} width={48} height={24} rx={6} fill={fill} className="body"
+          opacity={c.type === 'led' && !led?.on ? 0.5 : 1} />
         <text x={cx} y={cy + 5} textAnchor="middle" fill={part.ink} className="part-text">{c.ref}</text>
+        {led?.over && (
+          <text x={cx} y={cy - 20} textAnchor="middle" className="warn">⚠ {formatCurrent(led.current)}</text>
+        )}
       </>
     );
   }

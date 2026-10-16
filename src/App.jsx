@@ -5,6 +5,8 @@ import { buildNetlist } from './circuit/netlist';
 import BreadboardEditor from './editor/BreadboardEditor';
 import Schematic from './editor/Schematic';
 import ScanView from './scan/ScanView';
+import { useSimulation } from './sim/useSimulation';
+import { formatCurrent, formatVoltage } from './sim/spice';
 
 const STORE = 'breadboard-circuit';
 
@@ -29,6 +31,7 @@ export default function App() {
   }, [components, photo]);
 
   const netlist = buildNetlist(components);
+  const sim = useSimulation(components, netlist);
   const selected = components.find(c => c.id === selectedId);
 
   const setComponents = cs => setDoc(d => ({ ...d, components: cs }));
@@ -107,12 +110,12 @@ export default function App() {
             <section>
               <h2>Breadboard</h2>
               <BreadboardEditor key={tool ?? 'select'} components={components} onChange={setComponents}
-                netlist={netlist} selectedId={selectedId} onSelect={setSelectedId} tool={tool}
+                netlist={netlist} sim={sim} selectedId={selectedId} onSelect={setSelectedId} tool={tool}
                 photo={showPhoto ? photo : null} />
             </section>
             <section>
               <h2>Schematic</h2>
-              <Schematic components={components} netlist={netlist}
+              <Schematic components={components} netlist={netlist} sim={sim}
                 selectedId={selectedId} onSelect={setSelectedId} />
             </section>
           </main>
@@ -147,9 +150,13 @@ export default function App() {
                     })}
                   </tbody>
                 </table>
+                <PartSim c={selected} sim={sim} onChange={patch => updateComponent(selected.id, patch)} />
                 <button className="danger" onClick={() => removeComponent(selected.id)}>Delete part</button>
               </div>
             ) : <p className="muted">Click a part on the breadboard or schematic.</p>}
+
+            <h2>Simulation</h2>
+            <SimStatus sim={sim} />
 
             <h2>Nets</h2>
             {netlist.nets.length ? (
@@ -157,6 +164,7 @@ export default function App() {
                 {netlist.nets.map(net => (
                   <li key={net.name} className={net.floating ? 'floating' : ''}>
                     <strong style={{ color: net.color }}>{net.name}</strong>{' '}
+                    {sim.nets.has(net.name) && <span className="volts">{formatVoltage(sim.nets.get(net.name))}</span>}{' '}
                     {net.pins.map(p => pinLabel(p.comp, p.pin)).join(', ') || '(wires only)'}
                     {net.floating && <em> unconnected</em>}
                   </li>
@@ -167,5 +175,50 @@ export default function App() {
         </div>
       )}
     </div>
+  );
+}
+
+function SimStatus({ sim }) {
+  const text = {
+    off: sim.message,
+    running: 'Simulating…',
+    ok: 'DC operating point is up to date.',
+    error: sim.message,
+  }[sim.status];
+  return (
+    <div className={`sim-status ${sim.status}`}>
+      <p>{text}</p>
+      {sim.warnings.map(w => <p key={w} className="muted">{w}</p>)}
+    </div>
+  );
+}
+
+// Live readings and controls for the selected part.
+function PartSim({ c, sim, onChange }) {
+  const led = sim.leds.get(c.id);
+  const supplied = sim.supplies.get(c.id);
+  return (
+    <>
+      {c.type === 'button' && (
+        <label className="check">
+          <input type="checkbox" checked={!!c.pressed} onChange={e => onChange({ pressed: e.target.checked })} />
+          Pressed
+        </label>
+      )}
+      {c.type === 'pot' && (
+        <label>Wiper position
+          <input type="range" min={0} max={1} step={0.01} value={c.wiper ?? 0.5}
+            onChange={e => onChange({ wiper: Number(e.target.value) })} />
+        </label>
+      )}
+      {led && (
+        <p className={led.over ? 'reading over' : 'reading'}>
+          {led.over ? `Too much current (${formatCurrent(led.current)}): this LED would burn out. Add a series resistor.`
+            : led.on ? `On: ${formatCurrent(led.current)} (${Math.round(led.brightness * 100)}% brightness)`
+            : `Off: ${formatCurrent(led.current)}`}
+        </p>
+      )}
+      {supplied !== undefined && <p className="reading">Supplying {formatCurrent(supplied)}</p>}
+    </>
   );
 }
