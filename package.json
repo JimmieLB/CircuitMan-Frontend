@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.131.0",
     "@techstark/opencv-js": "^5.0.0-release.1",
     "eecircuit-engine": "1.8.0",
     "react": "^19.2.8",
