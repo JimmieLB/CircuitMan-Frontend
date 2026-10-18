@@ -3,7 +3,7 @@
 const range = n => Array.from({ length: n }, (_, i) => String(i + 1));
 
 export const PARTS = {
-  wire:       { label: 'Jumper wire',   pins: ['1', '2'], color: '#e0a800' },
+  wire:       { label: 'Jumper wire',   pins: ['1', '2'], prefix: 'W',  color: '#e0a800' },
   resistor:   { label: 'Resistor',      pins: ['1', '2'], prefix: 'R',  value: '220Ω',  color: '#d8b98a', ink: '#3b2a12' },
   led:        { label: 'LED',           pins: ['A', 'K'], prefix: 'D',  value: 'red',   color: '#ff5a5a', ink: '#1b1b1b' },
   capacitor:  { label: 'Capacitor',     pins: ['+', '−'], prefix: 'C',  value: '10µF',  color: '#3d7fd1', ink: '#fff' },

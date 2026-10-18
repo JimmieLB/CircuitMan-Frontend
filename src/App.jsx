@@ -5,6 +5,7 @@ import { buildNetlist } from './circuit/netlist';
 import BreadboardEditor from './editor/BreadboardEditor';
 import Schematic from './editor/Schematic';
 import ScanView from './scan/ScanView';
+import AgentPanel from './agent/AgentPanel';
 import { useSimulation } from './sim/useSimulation';
 import { formatCurrent, formatVoltage } from './sim/spice';
 
@@ -121,6 +122,8 @@ export default function App() {
           </main>
 
           <aside className="inspector">
+            <AgentPanel components={components} onCircuit={setComponents} />
+
             <h2>Properties</h2>
             {selected ? (
               <div className="props">
