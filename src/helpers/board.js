@@ -26,15 +26,19 @@ export function buildHoles() {
       });
     }
   }
+  // Rail holes are named after the terminal column they line up with, so
+  // topPlus12 sits directly above a12. Rails skip a column between groups of 5.
   for (const [rail, y] of Object.entries(LAYOUT.rails)) {
     for (let g = 0; g < LAYOUT.railGroups; g++)
-      for (let k = 0; k < LAYOUT.railGroupSize; k++)
+      for (let k = 0; k < LAYOUT.railGroupSize; k++) {
+        const pos = LAYOUT.railX0 + g * LAYOUT.railGroupStride + k;
         holes.push({
-          id: `${rail}${g * LAYOUT.railGroupSize + k + 1}`,
-          x: (LAYOUT.railX0 + g * LAYOUT.railGroupStride + k) * PITCH,
+          id: `${rail}${pos - LAYOUT.x0 + 1}`,
+          x: pos * PITCH,
           y: y * PITCH,
           strip: rail,
         });
+      }
   }
   return holes;
 }

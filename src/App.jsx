@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import './App.css';
 import { PARTS, pinLabel } from './circuit/parts';
 import { buildNetlist } from './circuit/netlist';
+import { migrateRailId } from './circuit/holes';
 import BreadboardEditor from './editor/BreadboardEditor';
 import Schematic from './editor/Schematic';
 import ScanView from './scan/ScanView';
@@ -10,10 +11,15 @@ import { useSimulation } from './sim/useSimulation';
 import { formatCurrent, formatVoltage } from './sim/spice';
 
 const STORE = 'breadboard-circuit';
+const VERSION = 2;   // 2: rail holes are named by the column they line up with
 
 function loadDoc() {
   try {
-    return JSON.parse(localStorage.getItem(STORE)) ?? { components: [], photo: null };
+    const doc = JSON.parse(localStorage.getItem(STORE));
+    if (!doc) return { components: [], photo: null };
+    if (doc.version !== VERSION)
+      doc.components = doc.components.map(c => ({ ...c, pins: c.pins.map(migrateRailId) }));
+    return doc;
   } catch {
     return { components: [], photo: null };
   }
@@ -28,7 +34,7 @@ export default function App() {
   const [note, setNote] = useState('');
 
   useEffect(() => {
-    try { localStorage.setItem(STORE, JSON.stringify({ components, photo })); } catch { /* storage full or blocked */ }
+    try { localStorage.setItem(STORE, JSON.stringify({ version: VERSION, components, photo })); } catch { /* storage full or blocked */ }
   }, [components, photo]);
 
   const netlist = buildNetlist(components);
@@ -36,8 +42,9 @@ export default function App() {
   const selected = components.find(c => c.id === selectedId);
 
   const setComponents = cs => setDoc(d => ({ ...d, components: cs }));
+  // Functional update: slider drags fire faster than renders, so never patch a stale list.
   const updateComponent = (id, patch) =>
-    setComponents(components.map(c => (c.id === id ? { ...c, ...patch } : c)));
+    setDoc(d => ({ ...d, components: d.components.map(c => (c.id === id ? { ...c, ...patch } : c)) }));
   const removeComponent = id => {
     setComponents(components.filter(c => c.id !== id));
     setSelectedId(null);
@@ -111,6 +118,7 @@ export default function App() {
             <section>
               <h2>Breadboard</h2>
               <BreadboardEditor key={tool ?? 'select'} components={components} onChange={setComponents}
+                onUpdatePart={updateComponent}
                 netlist={netlist} sim={sim} selectedId={selectedId} onSelect={setSelectedId} tool={tool}
                 photo={showPhoto ? photo : null} />
             </section>
@@ -204,7 +212,7 @@ function PartSim({ c, sim, onChange }) {
     <>
       {c.type === 'button' && (
         <label className="check">
-          <input type="checkbox" checked={!!c.pressed} onChange={e => onChange({ pressed: e.target.checked })} />
+          <input type="checkbox" checked={!!c.pressed} onChange={e => onChange({ pressed: e.target.checked, latched: e.target.checked })} />
           Pressed
         </label>
       )}
