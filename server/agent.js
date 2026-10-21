@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { TOOLS, SYSTEM_PROMPT, createSession } from './circuitTools';
 
-const MODEL = 'claude-opus-5-5';
+const MODEL = 'claude-sonnet-5-5';
 const MAX_STEPS = 30;   // model calls per user message
 
 let client, clientKey;

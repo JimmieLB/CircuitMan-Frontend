@@ -103,6 +103,7 @@ Notes:
 - A potentiometer's W pin is the wiper.
 - DIP ICs straddle the centre channel: give the pin-1 hole in row f (notch left, pins run left to right along f, then back along e) or in row e (rotated 180°).
 - The power supply's + and − pins usually go in topPlus and topMinus. Nets touching the supply's + pin are named VCC and its − pin GND.
+- When adding a push button, always set pin 1 and pin 4 on row e with 1 column between them, and pin 2 and pin 3 on row f with 1 column between them.
 
 ## Simulation
 The simulator finds the DC operating point only: capacitors act as open circuits and ICs aren't simulated. An LED counts as lit above 0.5 mA, and above 30 mA it would burn out.
