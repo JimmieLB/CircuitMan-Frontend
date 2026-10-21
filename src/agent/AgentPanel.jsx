@@ -1,4 +1,13 @@
 import { useRef, useState } from 'react';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+// Claude replies in Markdown. Tables scroll sideways inside the narrow panel; links open in a new tab.
+const MD_PLUGINS = [remarkGfm];
+const MD_COMPONENTS = {
+  table: ({ node: _node, ...props }) => <div className="md-table"><table {...props} /></div>,
+  a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+};
 
 // Chat with the circuit agent. The agent edits a copy of the circuit on the
 // server and streams each change back, so the breadboard updates as it works.
@@ -84,7 +93,13 @@ export default function AgentPanel({ components, onCircuit }) {
             that lights up when a button is pressed."
           </p>
         )}
-        {log.map((m, i) => <p key={i} className={`msg ${m.kind}${m.error ? ' failed' : ''}`}>{m.text}</p>)}
+        {log.map((m, i) => m.kind === 'assistant'
+          ? (
+            <div key={i} className="msg assistant md">
+              <Markdown remarkPlugins={MD_PLUGINS} components={MD_COMPONENTS}>{m.text}</Markdown>
+            </div>
+          )
+          : <p key={i} className={`msg ${m.kind}${m.error ? ' failed' : ''}`}>{m.text}</p>)}
         {busy && <p className="msg tool">Working…</p>}
       </div>
 

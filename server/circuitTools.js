@@ -2,7 +2,7 @@
 // (the same component list the editor uses) and reuse the app's netlist and
 // SPICE code, so the agent sees exactly what the user sees.
 import { PARTS, makeComponent, dipPins, nextRef, pinLabel } from '../src/circuit/parts';
-import { HOLES, HOLE_BY_ID } from '../src/circuit/holes';
+import { HOLES, HOLE_BY_ID, RAIL_COLUMNS } from '../src/circuit/holes';
 import { buildNetlist } from '../src/circuit/netlist';
 import { buildDeck, readResult } from '../src/sim/spice';
 import { runSpice } from '../src/sim/engine';
@@ -68,6 +68,17 @@ export const TOOLS = [
   },
 ].map(t => ({ ...t, strict: true }));
 
+// "3–7, 9–13, …" — the columns that have rail holes, as ranges.
+const railRanges = RAIL_COLUMNS
+  .reduce((runs, col) => {
+    const last = runs.at(-1);
+    if (last && col === last[1] + 1) last[1] = col;
+    else runs.push([col, col]);
+    return runs;
+  }, [])
+  .map(([a, b]) => (a === b ? `${a}` : `${a}–${b}`))
+  .join(', ');
+
 const partList = Object.entries(PARTS)
   .map(([type, p]) => `- ${type}: ${p.label}; pins in order: ${p.pins.join(', ')}${p.value ? `; default value "${p.value}"` : ''}`)
   .join('\n');
@@ -77,7 +88,9 @@ export const SYSTEM_PROMPT = `You are the circuit assistant inside Breadboard St
 ## The breadboard
 - The main area has columns 1–63 and rows a–j. A hole is named row + column, e.g. "a12" or "h40".
 - In each column, holes a–e are connected to each other, and holes f–j are connected to each other. The two halves are not connected across the centre channel (between e and f).
-- There are four power rails, each a single connected strip along the whole board: topPlus, topMinus, botPlus, botMinus. Their holes are numbered 1–50, e.g. "topPlus7". The top and bottom rails are separate unless a jumper wire joins them.
+- There are four power rails, each a single connected strip along the whole board: topPlus and topMinus above row a, botPlus and botMinus below row j. The top and bottom rails are separate unless a jumper wire joins them.
+- Rail holes are numbered by the terminal column they line up with: topPlus12 is directly above a12, and botMinus12 directly below j12. To connect a rail to column N, use the rail hole and terminal hole with the same number (e.g. topPlus12 → a12, j30 → botMinus30) so the wire or part runs straight.
+- Rails only have holes at columns ${railRanges}. They skip one column between groups of five, so when a part needs a rail connection, put it in a column that has a rail hole.
 - Each hole holds one lead. Two pins in the same strip are connected; a two-pin part with both pins in one strip is shorted out.
 
 ## Parts
@@ -90,6 +103,7 @@ Notes:
 - A potentiometer's W pin is the wiper.
 - DIP ICs straddle the centre channel: give the pin-1 hole in row f (notch left, pins run left to right along f, then back along e) or in row e (rotated 180°).
 - The power supply's + and − pins usually go in topPlus and topMinus. Nets touching the supply's + pin are named VCC and its − pin GND.
+- When adding a push button, always set pin 1 and pin 4 on row e with 1 column between them, and pin 2 and pin 3 on row f with 1 column between them.
 
 ## Simulation
 The simulator finds the DC operating point only: capacitors act as open circuits and ICs aren't simulated. An LED counts as lit above 0.5 mA, and above 30 mA it would burn out.
@@ -102,6 +116,16 @@ The simulator finds the DC operating point only: capacitors act as open circuits
 - If the user asks a question that doesn't need changes, answer it without calling the editing tools.`;
 
 const HOLE_BY_LOWER = new Map(HOLES.map(h => [h.id.toLowerCase(), h.id]));
+
+function holeError(h) {
+  const rail = /^(topPlus|topMinus|botPlus|botMinus)(\d+)$/i.exec(h);
+  if (!rail) return `"${h}" isn't a hole. Use a1–j63, or a rail name plus a column (rail holes are at columns ${railRanges}).`;
+  const name = ['topPlus', 'topMinus', 'botPlus', 'botMinus'].find(r => r.toLowerCase() === rail[1].toLowerCase());
+  const col = Number(rail[2]);
+  const below = RAIL_COLUMNS.filter(c => c < col).at(-1), above = RAIL_COLUMNS.find(c => c > col);
+  const nearest = [below, above].filter(c => c !== undefined).map(c => `${name}${c}`).join(' or ');
+  return `There's no rail hole at column ${col}; rails only have holes at columns ${railRanges}. The nearest is ${nearest}.`;
+}
 
 export function createSession(initial) {
   // Older saves have jumper wires without refs; name them so the agent can refer to them.
@@ -119,7 +143,7 @@ export function createSession(initial) {
     const part = PARTS[type], n = part.pins.length;
     let pins = holes.map(h => {
       const id = HOLE_BY_LOWER.get(String(h).trim().toLowerCase());
-      if (!id) throw new Error(`"${h}" isn't a hole. Use a1–j63, or topPlus/topMinus/botPlus/botMinus 1–50.`);
+      if (!id) throw new Error(holeError(String(h).trim()));
       return id;
     });
     if (part.dip && pins.length === 1) {
@@ -202,7 +226,7 @@ export function createSession(initial) {
       const patch = {};
       if (value !== null) patch.value = value;
       if (holes !== null) patch.pins = resolveHoles(old.type, holes, old.id);
-      if (pressed !== null) patch.pressed = pressed;
+      if (pressed !== null) patch.pressed = patch.latched = pressed;   // stays down until the user releases it
       if (wiper !== null) patch.wiper = Math.min(1, Math.max(0, wiper));
       const c = { ...old, ...patch };
       components = components.map(x => (x.id === c.id ? c : x));

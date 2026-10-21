@@ -12,3 +12,14 @@ export function snapToHole(p) {
   }
   return best;
 }
+
+// Columns that have rail holes (rails skip a column between groups of 5).
+export const RAIL_COLUMNS = HOLES
+  .filter(h => h.id.startsWith('topPlus'))
+  .map(h => Number(h.id.slice('topPlus'.length)));
+
+// Saves from before rail holes were named by column numbered them 1–50 along the rail.
+export function migrateRailId(id) {
+  const m = /^(topPlus|topMinus|botPlus|botMinus)(\d+)$/.exec(id);
+  return m ? `${m[1]}${RAIL_COLUMNS[Number(m[2]) - 1]}` : id;
+}
