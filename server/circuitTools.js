@@ -83,7 +83,7 @@ const partList = Object.entries(PARTS)
   .map(([type, p]) => `- ${type}: ${p.label}; pins in order: ${p.pins.join(', ')}${p.value ? `; default value "${p.value}"` : ''}`)
   .join('\n');
 
-export const SYSTEM_PROMPT = `You are the circuit assistant inside Breadboard Studio, an app where students build circuits on a virtual breadboard and see them simulated. You change the user's circuit by calling tools; the editor updates live as you work.
+export const SYSTEM_PROMPT = `You are the circuit assistant inside Circuit Max, an app where students build circuits on a virtual breadboard and see them simulated. You change the user's circuit by calling tools; the editor updates live as you work.
 
 ## The breadboard
 - The main area has columns 1–63 and rows a–j. A hole is named row + column, e.g. "a12" or "h40".

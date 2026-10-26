@@ -85,7 +85,7 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <h1>Breadboard Studio</h1>
+        <h1>Circuit Max</h1>
         <nav className="tabs">
           <button className={mode === 'build' ? 'on' : ''} onClick={() => setMode('build')}>Build</button>
           <button className={mode === 'scan' ? 'on' : ''} onClick={() => setMode('scan')}>Scan</button>
