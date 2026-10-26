@@ -91,8 +91,8 @@ function BoardBackground() {
     <g className="board-bg">
       <rect width={BOARD_W} height={BOARD_H} rx={14} className="plastic" />
       <rect x={0} y={200} width={BOARD_W} height={20} className="channel" />
-      <line x1={50} x2={1250} y1={16} y2={16} className="rail-plus" />
-      <line x1={50} x2={1250} y1={62} y2={62} className="rail-minus" />
+      <line x1={50} x2={1250} y1={8} y2={8} className="rail-plus" />
+      <line x1={50} x2={1250} y1={52} y2={52} className="rail-minus" />
       <line x1={50} x2={1250} y1={360} y2={360} className="rail-plus" />
       <line x1={50} x2={1250} y1={408} y2={408} className="rail-minus" />
       {Object.entries(ROW_LABELS).map(([r, y]) => (
