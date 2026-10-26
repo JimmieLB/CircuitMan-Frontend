@@ -7,6 +7,7 @@ import BreadboardEditor from './editor/BreadboardEditor';
 import Schematic from './editor/Schematic';
 import ScanView from './scan/ScanView';
 import AgentPanel from './agent/AgentPanel';
+import { exportTrainingSample, saveDatasetYaml } from './scan/trainingExport';
 import { useSimulation } from './sim/useSimulation';
 import { formatCurrent, formatVoltage } from './sim/spice';
 
@@ -65,6 +66,12 @@ export default function App() {
     setSelectedId(null);
   }
 
+  // Training files go to TRAINING_DIR when it's set (the promise gives the folder), else to downloads.
+  const reportSave = (saving, what) => saving.then(
+    dir => setNote(dir ? `Saved ${what} to ${dir}` : ''),
+    err => setNote(`Couldn't save ${what}: ${err.message}`),
+  );
+
   function onScanned(scan) {
     if (components.length && !confirm('Replace the current circuit with the scanned one?')) return;
     setDoc({ components: scan.components, photo: scan.photo });
@@ -78,7 +85,7 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <h1>Breadboard Studio</h1>
+        <h1>Circuit Max</h1>
         <nav className="tabs">
           <button className={mode === 'build' ? 'on' : ''} onClick={() => setMode('build')}>Build</button>
           <button className={mode === 'scan' ? 'on' : ''} onClick={() => setMode('scan')}>Scan</button>
@@ -103,6 +110,12 @@ export default function App() {
                   Show scanned photo
                 </label>
                 <button onClick={() => setDoc(d => ({ ...d, photo: null }))}>Remove photo</button>
+                <button disabled={!components.length}
+                  title="Download the photo and YOLO-pose labels for the parts placed on it"
+                  onClick={() => reportSave(exportTrainingSample(photo, components), 'training sample')}>
+                  Export training sample
+                </button>
+                <button onClick={() => reportSave(saveDatasetYaml(), 'dataset.yaml')}>Save dataset.yaml</button>
               </>
             )}
             <button disabled={!components.length}
@@ -161,6 +174,11 @@ export default function App() {
                     })}
                   </tbody>
                 </table>
+                {(selected.type === 'led' || selected.type === 'capacitor') && (
+                  <button onClick={() => updateComponent(selected.id, { pins: [...selected.pins].reverse() })}>
+                    Reverse direction
+                  </button>
+                )}
                 <PartSim c={selected} sim={sim} onChange={patch => updateComponent(selected.id, patch)} />
                 <button className="danger" onClick={() => removeComponent(selected.id)}>Delete part</button>
               </div>
