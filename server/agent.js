@@ -10,15 +10,17 @@ let client, clientKey;
 //   messages   – the conversation so far, exactly as returned by the last turn (append-only)
 //   userText   – what the user just typed
 //   components – the circuit as it is in the editor right now
+//   boards     – the breadboards on the canvas ({ id, x, y, photo? })
+//   capVoltages – { capacitor id: volts } on the user's board right now
 //   apiKey     – Anthropic API key (read from .env.local by the dev server)
-// `emit` streams progress events to the browser: text, tool, circuit, done, error.
-export async function runAgent({ messages = [], userText, components = [], apiKey }, emit) {
+// `emit` streams progress events to the browser: text, tool, circuit, discharge, done, error.
+export async function runAgent({ messages = [], userText, components = [], boards, capVoltages = {}, apiKey }, emit) {
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set');
   if (apiKey !== clientKey) {
     client = new Anthropic({ apiKey });
     clientKey = apiKey;
   }
-  const session = createSession(components);
+  const session = createSession(components, capVoltages, boards);
 
   const history = [...messages, {
     role: 'user',
@@ -60,8 +62,9 @@ export async function runAgent({ messages = [], userText, components = [], apiKe
     const results = [];
     for (const use of toolUses) {
       try {
-        const { result, summary } = await session.run(use.name, use.input);
+        const { result, summary, discharge } = await session.run(use.name, use.input);
         emit({ type: 'tool', name: use.name, summary });
+        if (discharge) emit({ type: 'discharge' });
         results.push({ type: 'tool_result', tool_use_id: use.id, content: JSON.stringify(result) });
       } catch (err) {
         emit({ type: 'tool', name: use.name, summary: `${use.name} failed: ${err.message}`, error: true });
@@ -69,13 +72,13 @@ export async function runAgent({ messages = [], userText, components = [], apiKe
       }
     }
     history.push({ role: 'user', content: results });
-    emit({ type: 'circuit', components: session.components });
+    emit({ type: 'circuit', components: session.components, boards: session.boards });
 
     if (step === MAX_STEPS - 1)
       emit({ type: 'error', message: 'Stopped after too many steps. Ask Claude to continue if it wasn\'t finished.' });
   }
 
-  emit({ type: 'done', messages: history, components: session.components });
+  emit({ type: 'done', messages: history, components: session.components, boards: session.boards });
 }
 
 export function describeError(err) {

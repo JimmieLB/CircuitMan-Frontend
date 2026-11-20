@@ -11,7 +11,10 @@ const MD_COMPONENTS = {
 
 // Chat with the circuit agent. The agent edits a copy of the circuit on the
 // server and streams each change back, so the breadboard updates as it works.
-export default function AgentPanel({ components, onCircuit }) {
+// `capVoltages` (capacitor id → volts) tells the agent how charged the board's
+// capacitors are; `onDischarge` empties them when the agent asks to.
+// `onCircuit(components, boards)` replaces the circuit with the agent's version.
+export default function AgentPanel({ components, boards, onCircuit, capVoltages, onDischarge }) {
   const [log, setLog] = useState([]);              // what the chat shows
   const [history, setHistory] = useState([]);      // API conversation, sent back unchanged each turn
   const [input, setInput] = useState('');
@@ -32,14 +35,15 @@ export default function AgentPanel({ components, onCircuit }) {
     setBusy(true);
     setUndo(null);
     add({ kind: 'user', text });
-    const before = components;
+    const before = { components, boards };
     let changed = false;
 
     try {
       const res = await fetch('/api/agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history, userText: text, components }),
+        // Photos stay here: the agent doesn't need them, and they're megabytes each.
+        body: JSON.stringify({ messages: history, userText: text, components, boards: boards.map(({ photo: _photo, ...b }) => b), capVoltages: Object.fromEntries(capVoltages) }),
       });
       if (!res.ok) throw new Error(res.status === 404
         ? 'The assistant only runs on the dev server (npm run dev).'
@@ -58,10 +62,11 @@ export default function AgentPanel({ components, onCircuit }) {
           if (event.type === 'text') add({ kind: 'assistant', text: event.text });
           else if (event.type === 'tool') add({ kind: 'tool', text: event.summary, error: event.error });
           else if (event.type === 'error') add({ kind: 'error', text: event.message });
-          else if (event.type === 'circuit') { onCircuit(event.components); changed = true; }
+          else if (event.type === 'circuit') { onCircuit(event.components, event.boards); changed = true; }
+          else if (event.type === 'discharge') onDischarge();
           else if (event.type === 'done') {
             setHistory(event.messages);
-            onCircuit(event.components);
+            onCircuit(event.components, event.boards);
           }
         }
       }
@@ -104,7 +109,7 @@ export default function AgentPanel({ components, onCircuit }) {
       </div>
 
       {undo && !busy && (
-        <button onClick={() => { onCircuit(undo); setUndo(null); }}>Undo the assistant's changes</button>
+        <button onClick={() => { onCircuit(undo.components, undo.boards); setUndo(null); }}>Undo the assistant's changes</button>
       )}
 
       <form onSubmit={send}>

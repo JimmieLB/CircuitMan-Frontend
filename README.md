@@ -97,7 +97,7 @@ Type a request in the **Assistant** panel on the right. Claude edits the circuit
 
 ### Scan a real breadboard
 
-1. Open the **Scan** tab and allow camera access. Place the board upright in view, with row `a` at the top and column 1 on the left.
+1. Open the **Scan** tab and allow camera access. Place the board level in view, with column 1 on the left. The flattened scan is flipped top to bottom so the board's `+` and `−` rails line up with the app's (set `FLIP_SCAN` in `src/helpers/board.js` to `false` if yours come out the wrong way round).
 2. Click **Auto-calibrate**. The preview shows the flattened board with a red dot on every hole, and the dots should sit on the real holes. If auto-calibration can't find the board (glare, poor light, board partly out of view), use **Calibrate by corners** and click the board's four corners instead.
 3. Click **Scan board**. The detected parts appear in the Build tab over the photo. Check them against the photo and fix anything that's wrong. LEDs can't be told apart by polarity in a photo, so the app works out their direction from the circuit; use **Reverse direction** on any it couldn't.
 
@@ -155,7 +155,7 @@ vite.config.js     dev-server endpoints: /api/agent and /api/training
 
 - The simulation finds the DC operating point only. Capacitors act as open circuits, and ICs are placed but not simulated.
 - The assistant only runs on the dev server (`npm run dev`).
-- Scanning assumes a standard 63-column breadboard, held upright in the camera view.
+- Scanning assumes a standard 63-column breadboard, held level in the camera view with column 1 on the left.
 
 ## Built with
 

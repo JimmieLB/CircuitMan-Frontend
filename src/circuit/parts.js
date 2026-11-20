@@ -13,7 +13,16 @@ export const PARTS = {
   battery:    { label: 'Power supply',  pins: ['+', '−'], prefix: 'BT', value: '5V',    color: '#c0392b', ink: '#fff' },
   ic_dip8:    { label: 'IC (DIP-8)',    pins: range(8),   prefix: 'U',  value: 'NE555',  color: '#1e1e1e', ink: '#eee', dip: true },
   ic_dip14:   { label: 'IC (DIP-14)',   pins: range(14),  prefix: 'U',  value: '74HC00', color: '#1e1e1e', ink: '#eee', dip: true },
+  // Standard 10-pin single digit (e.g. 5161AS/BS). Pins 1–5 run along the bottom, 6–10 back along the top.
+  // Keep new parts at the end: training labels use each part's position here as its class id.
+  seg7:       { label: '7-segment display', pins: ['E', 'D', 'COM1', 'C', 'DP', 'B', 'A', 'COM2', 'F', 'G'],
+                prefix: 'DS', value: 'common cathode red', color: '#1c1c1f', ink: '#d8d8d8', dip: true },
 };
+
+// 7-segment display: which pin drives each segment, and how it's wired inside.
+export const SEG7_PINS = { a: 6, b: 5, c: 3, d: 1, e: 0, f: 8, g: 9, dp: 4 };
+export const SEG7_COMMON = [2, 7];
+export const seg7Anode = value => /anode|\bCA\b/i.test(value);
 
 // An LED's colour comes from its value text ("red", "green 5mm", …).
 export const LED_COLORS = {
@@ -47,8 +56,11 @@ export const pinLabel = (c, i) =>
 
 // A DIP chip straddles the centre channel. Clicking pin 1 in row f places it
 // notch-left (pins 1..n/2 run left→right along f); in row e it's rotated 180°.
+// Works with board-qualified ids ("B2:f10") and bare ones ("f10"), keeping the board.
 export function dipPins(holeId, n) {
-  const m = /^([ef])(\d+)$/.exec(holeId);
+  const colon = holeId.indexOf(':');
+  const board = colon < 0 ? '' : holeId.slice(0, colon + 1);
+  const m = /^([ef])(\d+)$/.exec(holeId.slice(colon + 1));
   if (!m) return null;
   const [, row, col] = m;
   const c = Number(col), half = n / 2;
@@ -56,5 +68,5 @@ export function dipPins(holeId, n) {
   const end = c + dir * (half - 1);
   if (end < 1 || end > 63) return null;
   return Array.from({ length: n }, (_, i) =>
-    i < half ? `${row}${c + dir * i}` : `${other}${c + dir * (n - 1 - i)}`);
+    board + (i < half ? `${row}${c + dir * i}` : `${other}${c + dir * (n - 1 - i)}`));
 }

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import './App.css';
-import { PARTS, pinLabel } from './circuit/parts';
+import { PARTS, pinLabel, LED_COLORS, ledColorName, seg7Anode } from './circuit/parts';
+import { SEGMENTS, segStates } from './editor/SevenSegment';
 import { buildNetlist } from './circuit/netlist';
-import { migrateRailId } from './circuit/holes';
+import { migrateRailId, holeId, makeBoard, splitHole } from './circuit/holes';
 import BreadboardEditor from './editor/BreadboardEditor';
 import Schematic from './editor/Schematic';
 import ScanView from './scan/ScanView';
@@ -10,39 +11,64 @@ import AgentPanel from './agent/AgentPanel';
 import { exportTrainingSample, saveDatasetYaml } from './scan/trainingExport';
 import { useSimulation } from './sim/useSimulation';
 import { formatCurrent, formatVoltage } from './sim/spice';
+import { parseChip, describeChip } from './sim/logic';
 
 const STORE = 'breadboard-circuit';
-const VERSION = 2;   // 2: rail holes are named by the column they line up with
+// 2: rail holes are named by the column they line up with
+// 3: many breadboards on a canvas; holes are "<board>:<hole>", and a scanned photo belongs to its board
+const VERSION = 3;
+
+const emptyDoc = () => ({ components: [], boards: [{ id: 'B1', x: 0, y: 0 }] });
 
 function loadDoc() {
   try {
     const doc = JSON.parse(localStorage.getItem(STORE));
-    if (!doc) return { components: [], photo: null };
-    if (doc.version !== VERSION)
+    if (!doc) return emptyDoc();
+    if (!(doc.version >= 2))
       doc.components = doc.components.map(c => ({ ...c, pins: c.pins.map(migrateRailId) }));
-    return doc;
+    if (!(doc.version >= 3)) {
+      doc.components = doc.components.map(c => ({ ...c, pins: c.pins.map(id => holeId('B1', id)) }));
+      doc.boards = [{ id: 'B1', x: 0, y: 0, ...(doc.photo && { photo: doc.photo }) }];
+    }
+    if (!doc.boards?.length) doc.boards = emptyDoc().boards;
+    return { components: doc.components, boards: doc.boards };
   } catch {
-    return { components: [], photo: null };
+    return emptyDoc();
   }
 }
 
+const onBoard = (c, board) => c.pins.some(p => splitHole(p)[0] === board);
+
 export default function App() {
   const [mode, setMode] = useState('build');
-  const [{ components, photo }, setDoc] = useState(loadDoc);
+  const [{ components, boards }, setDoc] = useState(loadDoc);
   const [selectedId, setSelectedId] = useState(null);
+  const [selectedBoard, setSelectedBoard] = useState(null);
   const [tool, setTool] = useState(null);
   const [showPhoto, setShowPhoto] = useState(true);
   const [note, setNote] = useState('');
 
   useEffect(() => {
-    try { localStorage.setItem(STORE, JSON.stringify({ version: VERSION, components, photo })); } catch { /* storage full or blocked */ }
-  }, [components, photo]);
+    try { localStorage.setItem(STORE, JSON.stringify({ version: VERSION, components, boards })); } catch { /* storage full or blocked */ }
+  }, [components, boards]);
 
   const netlist = buildNetlist(components);
   const sim = useSimulation(components, netlist);
   const selected = components.find(c => c.id === selectedId);
 
   const setComponents = cs => setDoc(d => ({ ...d, components: cs }));
+  // Takes a list or an updater (board drags fire faster than renders).
+  const setBoards = bs => setDoc(d => ({ ...d, boards: typeof bs === 'function' ? bs(d.boards) : bs }));
+  const updateBoard = (id, patch) => setBoards(bs => bs.map(b => (b.id === id ? { ...b, ...patch } : b)));
+  const board = boards.find(b => b.id === selectedBoard);
+
+  function deleteBoard(id) {
+    const parts = components.filter(c => onBoard(c, id));
+    if (parts.length && !confirm(`Delete ${id} and the ${parts.length} part${parts.length > 1 ? 's' : ''} on it (wires to it included)?`)) return;
+    setDoc(d => ({ boards: d.boards.filter(b => b.id !== id), components: d.components.filter(c => !onBoard(c, id)) }));
+    if (selectedBoard === id) setSelectedBoard(null);
+    if (parts.some(c => c.id === selectedId)) setSelectedId(null);
+  }
   // Functional update: slider drags fire faster than renders, so never patch a stale list.
   const updateComponent = (id, patch) =>
     setDoc(d => ({ ...d, components: d.components.map(c => (c.id === id ? { ...c, ...patch } : c)) }));
@@ -72,15 +98,27 @@ export default function App() {
     err => setNote(`Couldn't save ${what}: ${err.message}`),
   );
 
+  // A scan comes in as a new board with its photo (or fills the only board, if it's still empty).
   function onScanned(scan) {
-    if (components.length && !confirm('Replace the current circuit with the scanned one?')) return;
-    setDoc({ components: scan.components, photo: scan.photo });
-    setNote(scan.note);
+    const reuse = boards.length === 1 && !components.length ? boards[0] : null;
+    const b = reuse ? { ...reuse, photo: scan.photo } : makeBoard(boards, { photo: scan.photo });
+    const parts = scan.components.map(c => ({ ...c, pins: c.pins.map(p => holeId(b.id, p)) }));
+    setDoc(d => ({
+      boards: reuse ? d.boards.map(x => (x.id === b.id ? b : x)) : [...d.boards, b],
+      components: [...d.components, ...parts],
+    }));
+    setNote(`Scanned into ${b.id}. ${scan.note ?? ''}`);
     setShowPhoto(true);
+    setSelectedBoard(b.id);
     setSelectedId(null);
     setTool(null);
     setMode('build');
   }
+
+  // Training labels are in one board's own coordinates: the parts wholly on it, with the board prefix dropped.
+  const boardParts = id => components
+    .filter(c => c.pins.every(p => splitHole(p)[0] === id))
+    .map(c => ({ ...c, pins: c.pins.map(p => splitHole(p)[1]) }));
 
   return (
     <div className="app">
@@ -103,23 +141,26 @@ export default function App() {
               </button>
             ))}
             <hr />
-            {photo && (
+            {boards.some(b => b.photo) && (
+              <label className="check">
+                <input type="checkbox" checked={showPhoto} onChange={e => setShowPhoto(e.target.checked)} />
+                Show scanned photos
+              </label>
+            )}
+            {board?.photo && (
               <>
-                <label className="check">
-                  <input type="checkbox" checked={showPhoto} onChange={e => setShowPhoto(e.target.checked)} />
-                  Show scanned photo
-                </label>
-                <button onClick={() => setDoc(d => ({ ...d, photo: null }))}>Remove photo</button>
-                <button disabled={!components.length}
-                  title="Download the photo and YOLO-pose labels for the parts placed on it"
-                  onClick={() => reportSave(exportTrainingSample(photo, components), 'training sample')}>
+                <p className="muted">Photo on {board.id}</p>
+                <button onClick={() => updateBoard(board.id, { photo: undefined })}>Remove photo</button>
+                <button disabled={!boardParts(board.id).length}
+                  title="Download the photo and YOLO-pose labels for the parts placed on this board"
+                  onClick={() => reportSave(exportTrainingSample(board.photo, boardParts(board.id)), 'training sample')}>
                   Export training sample
                 </button>
                 <button onClick={() => reportSave(saveDatasetYaml(), 'dataset.yaml')}>Save dataset.yaml</button>
               </>
             )}
             <button disabled={!components.length}
-              onClick={() => { if (confirm('Remove every part?')) { setComponents([]); setSelectedId(null); } }}>
+              onClick={() => { if (confirm('Remove every part from every board?')) { setComponents([]); setSelectedId(null); } }}>
               Clear circuit
             </button>
           </aside>
@@ -129,11 +170,12 @@ export default function App() {
               <p className="note">{note} <button onClick={() => setNote('')} aria-label="Dismiss">×</button></p>
             )}
             <section>
-              <h2>Breadboard</h2>
-              <BreadboardEditor key={tool ?? 'select'} components={components} onChange={setComponents}
-                onUpdatePart={updateComponent}
+              <h2>Breadboards</h2>
+              <BreadboardEditor boards={boards} onBoardsChange={setBoards} onDeleteBoard={deleteBoard}
+                selectedBoard={selectedBoard} onSelectBoard={setSelectedBoard}
+                components={components} onChange={setComponents} onUpdatePart={updateComponent}
                 netlist={netlist} sim={sim} selectedId={selectedId} onSelect={setSelectedId} tool={tool}
-                photo={showPhoto ? photo : null} />
+                showPhotos={showPhoto} />
             </section>
             <section>
               <h2>Schematic</h2>
@@ -143,7 +185,13 @@ export default function App() {
           </main>
 
           <aside className="inspector">
-            <AgentPanel components={components} onCircuit={setComponents} />
+            <AgentPanel components={components} boards={boards}
+              onCircuit={(cs, bs) => setDoc(d => ({
+                components: cs,
+                // The agent never sees photos; keep each board's own.
+                boards: bs.map(b => ({ ...d.boards.find(x => x.id === b.id), ...b })),
+              }))}
+              capVoltages={sim.state} onDischarge={sim.discharge} />
 
             <h2>Properties</h2>
             {selected ? (
@@ -207,16 +255,55 @@ export default function App() {
   );
 }
 
+// Type and colour pickers for a 7-segment display, and which segments are lit.
+function Seg7Controls({ c, sim, onChange }) {
+  const anode = seg7Anode(c.value), color = ledColorName(c.value);
+  const set = (a, col) => onChange({ value: `${a ? 'common anode' : 'common cathode'} ${col}` });
+  const segs = segStates(sim.leds, c.id);
+  const lit = SEGMENTS.filter(s => segs[s]?.on);
+  const over = SEGMENTS.filter(s => segs[s]?.over);
+  const max = Math.max(0, ...SEGMENTS.map(s => segs[s]?.current ?? 0));
+  return (
+    <>
+      <label>Type
+        <select value={anode ? 'anode' : 'cathode'} onChange={e => set(e.target.value === 'anode', color)}>
+          <option value="cathode">Common cathode (COM to −)</option>
+          <option value="anode">Common anode (COM to +)</option>
+        </select>
+      </label>
+      <label>Colour
+        <select value={color} onChange={e => set(anode, e.target.value)}>
+          {Object.keys(LED_COLORS).map(k => <option key={k} value={k}>{k}</option>)}
+        </select>
+      </label>
+      {over.length ? (
+        <p className="reading over">Too much current in {over.join(', ')} ({formatCurrent(max)}): give each segment its own resistor.</p>
+      ) : (
+        <p className="reading">{lit.length ? `Lit: ${lit.join(', ')} (up to ${formatCurrent(max)})` : 'All segments off'}</p>
+      )}
+    </>
+  );
+}
+
+const formatSpeed = s => (s >= 0.01 ? `${Math.round(s * 100)}%` : `1/${Math.round(1 / s)}`);
+const formatTime = t => (t >= 1 ? `${t.toFixed(2)} s` : `${(t * 1e3).toFixed(1)} ms`);
+
 function SimStatus({ sim }) {
   const text = {
     off: sim.message,
     running: 'Simulating…',
-    ok: 'DC operating point is up to date.',
+    ok: sim.mode !== 'transient' ? 'DC operating point is up to date.'
+      : sim.settled ? `Steady state reached (t = ${sim.time.toFixed(1)} s).`
+      : sim.speed < 0.99 ? `Slow motion (${formatSpeed(sim.speed)} speed; the circuit changes too fast for real time): t = ${formatTime(sim.time)}`
+      : `Running in real time: t = ${sim.time.toFixed(1)} s`,
     error: sim.message,
   }[sim.status];
   return (
     <div className={`sim-status ${sim.status}`}>
       <p>{text}</p>
+      {sim.hasCaps && sim.status !== 'off' && (
+        <button className="small" onClick={sim.discharge}>Discharge capacitors</button>
+      )}
       {sim.warnings.map(w => <p key={w} className="muted">{w}</p>)}
     </div>
   );
@@ -226,8 +313,16 @@ function SimStatus({ sim }) {
 function PartSim({ c, sim, onChange }) {
   const led = sim.leds.get(c.id);
   const supplied = sim.supplies.get(c.id);
+  const capV = sim.caps.get(c.id);
+  const chip = c.type === 'ic_dip14' ? parseChip(c.value) : null;
   return (
     <>
+      {c.type === 'seg7' && <Seg7Controls c={c} sim={sim} onChange={onChange} />}
+      {c.type === 'ic_dip14' && (
+        <p className="reading">
+          {chip ? describeChip(chip) : 'Not a logic chip the simulator knows. Try 74HC00, 74LS04, CD4011…'}
+        </p>
+      )}
       {c.type === 'button' && (
         <label className="check">
           <input type="checkbox" checked={!!c.pressed} onChange={e => onChange({ pressed: e.target.checked, latched: e.target.checked })} />
@@ -248,6 +343,7 @@ function PartSim({ c, sim, onChange }) {
         </p>
       )}
       {supplied !== undefined && <p className="reading">Supplying {formatCurrent(supplied)}</p>}
+      {capV !== undefined && <p className="reading">Charged to {formatVoltage(capV)}</p>}
     </>
   );
 }

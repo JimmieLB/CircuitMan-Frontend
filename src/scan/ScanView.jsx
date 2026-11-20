@@ -166,7 +166,7 @@ export default function ScanView({ onScanned }) {
   return (
     <div className="scan">
       <p className="help">
-        Point the camera at the breadboard, upright with row a at the top. Auto-calibrate to find
+        Point the camera at the breadboard, level with column 1 on the left. Auto-calibrate to find
         the board from its holes (or click its four corners), then scan to turn it into an editable circuit.
       </p>
       <div className="camera">

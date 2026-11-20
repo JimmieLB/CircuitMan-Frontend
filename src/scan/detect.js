@@ -1,7 +1,7 @@
 import { snapToHole } from '../circuit/holes';
 import { PARTS, makeComponent, dipPins } from '../circuit/parts';
 import { buildNetlist } from '../circuit/netlist';
-import { buildDeck, readResult } from '../sim/spice';
+import { buildDeck, opDeck, readResult } from '../sim/spice';
 import { runSpice } from '../sim/engine';
 
 const DETECT_URL = import.meta.env.VITE_DETECT_URL;
@@ -52,9 +52,9 @@ export async function orientLeds(components) {
   const netlist = buildNetlist(probe);
   const deck = buildDeck(probe, netlist);
   let nets = new Map();
-  if (deck.netlist) {
+  if (deck.circuit) {
     try {
-      const { result, errors } = await runSpice(deck.netlist);
+      const { result, errors } = await runSpice(opDeck(deck));
       const r = readResult(deck, result, errors);
       if (r.status === 'ok') nets = r.nets;
     } catch { /* leave every LED as found */ }
