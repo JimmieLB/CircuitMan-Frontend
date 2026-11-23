@@ -147,9 +147,9 @@ async function agentApi(req, res) {
   }
   res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
   const emit = event => { if (!res.writableEnded) res.write(JSON.stringify(event) + '\n'); };
-  const { messages, userText, components, boards, capVoltages } = input;
+  const { messages, userText, components, boards, capVoltages, model } = input;
   try {
-    await runAgent({ messages, userText, components, boards, capVoltages, apiKey: process.env.ANTHROPIC_API_KEY }, emit);
+    await runAgent({ messages, userText, components, boards, capVoltages, model, apiKey: process.env.ANTHROPIC_API_KEY }, emit);
   } catch (err) {
     console.error(err.stack ?? String(err));
     emit({ type: 'error', message: describeError(err) });

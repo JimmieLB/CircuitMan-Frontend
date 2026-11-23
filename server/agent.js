@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { TOOLS, SYSTEM_PROMPT, createSession } from './circuitTools';
+import { agentModel } from '../src/agent/models';
 
-const MODEL = 'claude-sonnet-5-5';
 const MAX_STEPS = 30;   // model calls per user message
 
 let client, clientKey;
@@ -12,9 +12,14 @@ let client, clientKey;
 //   components – the circuit as it is in the editor right now
 //   boards     – the breadboards on the canvas ({ id, x, y, photo? })
 //   capVoltages – { capacitor id: volts } on the user's board right now
+//   model      – one of AGENT_MODELS' ids (anything else gets the default). The
+//                conversation can switch model between turns: the history is
+//                replayed unchanged, and the API drops thinking blocks the new
+//                model can't read.
 //   apiKey     – Anthropic API key (read from .env.local by the dev server)
 // `emit` streams progress events to the browser: text, tool, circuit, discharge, done, error.
-export async function runAgent({ messages = [], userText, components = [], boards, capVoltages = {}, apiKey }, emit) {
+export async function runAgent({ messages = [], userText, components = [], boards, capVoltages = {}, model, apiKey }, emit) {
+  const m = agentModel(model);
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set');
   if (apiKey !== clientKey) {
     client = new Anthropic({ apiKey });
@@ -29,11 +34,14 @@ export async function runAgent({ messages = [], userText, components = [], board
 
   for (let step = 0; step < MAX_STEPS; step++) {
     const response = await client.beta.messages.create({
-      model: MODEL,
+      model: m.id,
       max_tokens: 16000,
       output_config: { effort: 'medium' },
+      // The beta header goes on every request, so a fallback block from an earlier
+      // Sonnet/Opus turn still replays after switching to Haiku.
       betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',   // if a safety classifier declines, retry on Anthropic's recommended model
+      // If a safety classifier declines, retry on Anthropic's recommended model. Haiku 5.5 has no server-side fallback.
+      ...(m.serverFallback && { fallbacks: 'default' }),
       cache_control: { type: 'ephemeral' },
       system: SYSTEM_PROMPT,
       tools: TOOLS,
@@ -41,7 +49,9 @@ export async function runAgent({ messages = [], userText, components = [], board
     });
 
     if (response.stop_reason === 'refusal') {
-      emit({ type: 'error', message: 'Claude declined this request. Try rephrasing it.' });
+      emit({ type: 'error', message: m.serverFallback
+        ? 'Claude declined this request. Try rephrasing it.'
+        : `${m.label} declined this request. Try rephrasing it, or switch to Sonnet or Opus.` });
       break;   // the refused turn isn't added to the history
     }
 

@@ -1,6 +1,13 @@
 import { useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { AGENT_MODELS, DEFAULT_AGENT_MODEL, agentModel } from './models';
+
+// The chosen model is a per-browser preference.
+const MODEL_KEY = 'agent-model';
+function loadModel() {
+  try { return agentModel(localStorage.getItem(MODEL_KEY)).id; } catch { return DEFAULT_AGENT_MODEL; }
+}
 
 // Claude replies in Markdown. Tables scroll sideways inside the narrow panel; links open in a new tab.
 const MD_PLUGINS = [remarkGfm];
@@ -20,6 +27,7 @@ export default function AgentPanel({ components, boards, onCircuit, capVoltages,
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [undo, setUndo] = useState(null);          // circuit before the last agent turn
+  const [model, setModel] = useState(loadModel);
   const logRef = useRef(null);
 
   const add = entry => {
@@ -43,7 +51,7 @@ export default function AgentPanel({ components, boards, onCircuit, capVoltages,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // Photos stay here: the agent doesn't need them, and they're megabytes each.
-        body: JSON.stringify({ messages: history, userText: text, components, boards: boards.map(({ photo: _photo, ...b }) => b), capVoltages: Object.fromEntries(capVoltages) }),
+        body: JSON.stringify({ messages: history, userText: text, model, components, boards: boards.map(({ photo: _photo, ...b }) => b), capVoltages: Object.fromEntries(capVoltages) }),
       });
       if (!res.ok) throw new Error(res.status === 404
         ? 'The assistant only runs on the dev server (npm run dev).'
@@ -78,6 +86,13 @@ export default function AgentPanel({ components, boards, onCircuit, capVoltages,
     }
   }
 
+  // Switching mid-conversation is fine: the next turn runs on the new model with the same history.
+  function chooseModel(id) {
+    setModel(id);
+    try { localStorage.setItem(MODEL_KEY, id); } catch { /* storage blocked */ }
+    if (log.length) add({ kind: 'tool', text: `Switched to ${agentModel(id).label}` });
+  }
+
   function newChat() {
     setLog([]);
     setHistory([]);
@@ -88,6 +103,10 @@ export default function AgentPanel({ components, boards, onCircuit, capVoltages,
     <div className="agent">
       <div className="agent-head">
         <h2>Assistant</h2>
+        <select className="agent-model" value={model} disabled={busy} aria-label="Model"
+          title={agentModel(model).hint} onChange={e => chooseModel(e.target.value)}>
+          {AGENT_MODELS.map(m => <option key={m.id} value={m.id} title={m.hint}>{m.label}</option>)}
+        </select>
         {log.length > 0 && <button onClick={newChat} disabled={busy}>New chat</button>}
       </div>
 
@@ -105,7 +124,7 @@ export default function AgentPanel({ components, boards, onCircuit, capVoltages,
             </div>
           )
           : <p key={i} className={`msg ${m.kind}${m.error ? ' failed' : ''}`}>{m.text}</p>)}
-        {busy && <p className="msg tool">Working…</p>}
+        {busy && <p className="msg tool">Working… ({agentModel(model).label})</p>}
       </div>
 
       {undo && !busy && (

@@ -182,7 +182,9 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 
 .agent { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
 .agent-head { display: flex; justify-content: space-between; align-items: center; }
-.agent-head h2 { margin: 0; }
+.agent-head { gap: 8px; }
+.agent-head h2 { margin: 0; margin-right: auto; }
+.agent-model { font-size: 12px; padding: 2px 4px; }
 .agent-head button { font-size: 12px; padding: 2px 8px; }
 .agent-log { max-height: 340px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .msg { margin: 0; font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
