@@ -77,11 +77,13 @@ function trainingApi() {
 }
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ isSsrBuild }) => ({
+  // The production server bundle (npm run build's second step) doesn't need the public assets.
+  build: { copyPublicDir: !isSsrBuild },
   plugins: [
     react(),
     babel({ presets: [reactCompilerPreset()] }),
     agentApi(),
     trainingApi(),
   ],
-})
+}))

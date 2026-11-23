@@ -85,7 +85,7 @@ export function describeError(err) {
   if (err instanceof Anthropic.AuthenticationError)
     return 'Anthropic rejected the API key. Check ANTHROPIC_API_KEY in frontend/.env.local, and that the terminal running the dev server doesn\'t set an old one.';
   if (/ANTHROPIC_API_KEY/.test(err.message ?? ''))
-    return 'No Anthropic API key found. Put ANTHROPIC_API_KEY=... in frontend/.env.local.';
+    return 'No Anthropic API key found. Set ANTHROPIC_API_KEY: in frontend/.env.local for the dev server, or in the host’s environment variables (e.g. Railway → Variables).';
   if (err instanceof Anthropic.RateLimitError) return 'Rate limited by the Claude API. Wait a moment and try again.';
   if (err instanceof Anthropic.BadRequestError) return `The Claude API rejected the request: ${err.message}`;
   if (err instanceof Anthropic.APIError) return `Claude API error ${err.status ?? ''}: ${err.message}`;

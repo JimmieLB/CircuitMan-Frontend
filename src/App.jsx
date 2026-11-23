@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import './App.css';
 import { PARTS, pinLabel, LED_COLORS, ledColorName, seg7Anode } from './circuit/parts';
 import { SEGMENTS, segStates } from './editor/SevenSegment';
@@ -6,7 +6,12 @@ import { buildNetlist } from './circuit/netlist';
 import { migrateRailId, holeId, makeBoard, splitHole } from './circuit/holes';
 import BreadboardEditor from './editor/BreadboardEditor';
 import Schematic from './editor/Schematic';
-import ScanView from './scan/ScanView';
+// Scanning (camera + OpenCV + detector) is on in dev and off in production builds unless
+// VITE_ENABLE_SCAN=true at build time. It's loaded on demand, so OpenCV isn't downloaded otherwise.
+const SCAN_ENABLED = import.meta.env.VITE_ENABLE_SCAN === 'true'
+  || (import.meta.env.DEV && import.meta.env.VITE_ENABLE_SCAN !== 'false');
+// Conditional so a build without scanning leaves OpenCV out entirely.
+const ScanView = SCAN_ENABLED ? lazy(() => import('./scan/ScanView')) : null;
 import AgentPanel from './agent/AgentPanel';
 import { exportTrainingSample, saveDatasetYaml } from './scan/trainingExport';
 import { useSimulation } from './sim/useSimulation';
@@ -124,13 +129,19 @@ export default function App() {
     <div className="app">
       <header>
         <h1>Circuit Max</h1>
-        <nav className="tabs">
-          <button className={mode === 'build' ? 'on' : ''} onClick={() => setMode('build')}>Build</button>
-          <button className={mode === 'scan' ? 'on' : ''} onClick={() => setMode('scan')}>Scan</button>
-        </nav>
+        {SCAN_ENABLED && (
+          <nav className="tabs">
+            <button className={mode === 'build' ? 'on' : ''} onClick={() => setMode('build')}>Build</button>
+            <button className={mode === 'scan' ? 'on' : ''} onClick={() => setMode('scan')}>Scan</button>
+          </nav>
+        )}
       </header>
 
-      {mode === 'scan' ? <ScanView onScanned={onScanned} /> : (
+      {SCAN_ENABLED && mode === 'scan' ? (
+        <Suspense fallback={<p className="muted">Loading the scanner…</p>}>
+          <ScanView onScanned={onScanned} />
+        </Suspense>
+      ) : (
         <div className="build">
           <aside className="palette">
             <h2>Parts</h2>
