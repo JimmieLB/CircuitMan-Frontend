@@ -10,7 +10,8 @@ const LAYOUT = {
   cols: 63, x0: 1.5,
   rowY: { a: 5, b: 6, c: 7, d: 8, e: 9,
           f: 12, g: 13, h: 14, i: 15, j: 16 },
-  rails: { topPlus: 1, topMinus: 2, botPlus: 18.7, botMinus: 19.7 },   // top rails checked against a scan
+  // Top rails checked against a scan; the bottom ones mirror them, since scans are flipped (FLIP_SCAN).
+  rails: { topPlus: 1, topMinus: 2, botPlus: 19, botMinus: 20 },
   railGroups: 10, railGroupSize: 5, railX0: 3.5, railGroupStride: 6,
 };
 
@@ -66,10 +67,15 @@ function boardTransform(cv, calib) {
   return M;
 }
 
+// Seen from the camera, the board's + and − rails are the other way up from the app's layout,
+// so the flattened scan is flipped top to bottom. Columns still run left to right.
+export const FLIP_SCAN = true;
+
 export function warpBoard(cv, src, calib) {
   const M = boardTransform(cv, calib);
   const dst = new cv.Mat();
   cv.warpPerspective(src, dst, M, new cv.Size(BOARD_W, BOARD_H));
+  if (FLIP_SCAN) cv.flip(dst, dst, 0);   // 0 = around the horizontal axis
   M.delete();
   return dst;
 }

@@ -71,14 +71,41 @@ npm run dev
 
 Open the address it prints (usually http://localhost:5173).
 
-The AI assistant and saving training files to `TRAINING_DIR` run on the Vite dev server, which keeps your API key out of the browser. Use `npm run dev` to get them. A production build (`npm run build`, then `npm run preview`) runs everything else.
+The AI assistant runs on the server side (the Vite dev server locally, `server/prod.js` in production), which keeps your API key out of the browser. Saving training files to `TRAINING_DIR` only works on the dev server.
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | Start the app with the assistant and training-file saving |
-| `npm run build` | Build a static production version into `dist/` |
-| `npm run preview` | Serve the production build |
+| `npm run dev` | Start the app with the assistant, scanning and training-file saving |
+| `npm run build` | Build the app into `dist/` and the production server into `dist-server/` |
+| `npm start` | Run the production server (needs `APP_PASSWORD`; see [Deploying to Railway](#deploying-to-railway)) |
+| `npm run preview` | Serve the built app without the assistant or a password |
 | `npm run lint` | Lint the code with oxlint |
+
+## Deploying to Railway
+
+The production server (`server/prod.js`) serves the built app, runs the AI assistant, and puts the whole site behind a password. Scanning is left out of production builds for now.
+
+1. Push this repository to GitHub.
+2. In Railway, choose **New Project → Deploy from GitHub repo** and pick this repository. `railway.json` tells Railway to run `npm run build`, start with `npm start`, and use `/healthz` as the health check.
+3. Under **Variables**, add:
+
+   | Variable | Value |
+   |---|---|
+   | `APP_PASSWORD` | The site password. Required: the server won't start without it. Use a long, random one. |
+   | `ANTHROPIC_API_KEY` | Your Anthropic API key, for the assistant. |
+
+4. Under **Settings → Networking**, choose **Generate Domain**.
+
+Opening the site asks for a username and password: the username can be anything, and the password is `APP_PASSWORD`. The browser remembers it until you close it. Ten wrong passwords from one address lock that address out for 15 minutes. To change the password, change the variable and Railway redeploys.
+
+To test the production setup locally:
+
+```bash
+npm run build
+APP_PASSWORD=something ANTHROPIC_API_KEY=sk-ant-... npm start   # http://localhost:3000
+```
+
+To include the scanner in a production build later, set `VITE_ENABLE_SCAN=true` as a Railway variable (it's read at build time) and point `VITE_DETECT_URL` at a detection server.
 
 ## Using it
 
@@ -97,7 +124,7 @@ Type a request in the **Assistant** panel on the right. Claude edits the circuit
 
 ### Scan a real breadboard
 
-1. Open the **Scan** tab and allow camera access. Place the board upright in view, with row `a` at the top and column 1 on the left.
+1. Open the **Scan** tab and allow camera access. Place the board level in view, with column 1 on the left. The flattened scan is flipped top to bottom so the board's `+` and `−` rails line up with the app's (set `FLIP_SCAN` in `src/helpers/board.js` to `false` if yours come out the wrong way round).
 2. Click **Auto-calibrate**. The preview shows the flattened board with a red dot on every hole, and the dots should sit on the real holes. If auto-calibration can't find the board (glare, poor light, board partly out of view), use **Calibrate by corners** and click the board's four corners instead.
 3. Click **Scan board**. The detected parts appear in the Build tab over the photo. Check them against the photo and fix anything that's wrong. LEDs can't be told apart by polarity in a photo, so the app works out their direction from the circuit; use **Reverse direction** on any it couldn't.
 
@@ -155,7 +182,7 @@ vite.config.js     dev-server endpoints: /api/agent and /api/training
 
 - The simulation finds the DC operating point only. Capacitors act as open circuits, and ICs are placed but not simulated.
 - The assistant only runs on the dev server (`npm run dev`).
-- Scanning assumes a standard 63-column breadboard, held upright in the camera view.
+- Scanning assumes a standard 63-column breadboard, held level in the camera view with column 1 on the left.
 
 ## Built with
 

@@ -1,5 +1,6 @@
 import { PARTS, LED_COLORS, ledColorName } from '../circuit/parts';
 import { formatCurrent } from '../sim/spice';
+import { SevenSegmentGlyph, segStates } from './SevenSegment';
 
 const CELL_W = 220, CELL_H = 170, MAX_COLS = 4;
 
@@ -23,6 +24,7 @@ export default function Schematic({ components, netlist, sim, selectedId, onSele
       </defs>
       {parts.map((c, i) => (
         <SymbolCell key={c.id} c={c} netlist={netlist} led={sim.leds.get(c.id)}
+          segs={c.type === 'seg7' ? segStates(sim.leds, c.id) : null}
           x={(i % cols) * CELL_W} y={Math.floor(i / cols) * CELL_H}
           selected={c.id === selectedId} onSelect={() => onSelect(c.id)} />
       ))}
@@ -30,8 +32,10 @@ export default function Schematic({ components, netlist, sim, selectedId, onSele
   );
 }
 
-function SymbolCell({ c, netlist, led, x, y, selected, onSelect }) {
-  const sym = symbolFor(c);
+function SymbolCell({ c, netlist, led, segs, x, y, selected, onSelect }) {
+  let sym = symbolFor(c);
+  // A 7-segment display is a pin box with the digit itself in the middle, so the labels go above.
+  if (segs) sym = { ...sym, label: [110, 18] };
   const [lx, ly, anchor = 'middle'] = sym.label;
   const glow = c.type === 'led' && LED_COLORS[ledColorName(c.value)];
   const cls = ['sym', selected && 'selected', led?.on && 'lit'].filter(Boolean).join(' ');
@@ -45,6 +49,7 @@ function SymbolCell({ c, netlist, led, x, y, selected, onSelect }) {
           opacity={0.3 + 0.6 * led.brightness} filter="url(#sch-glow)" />
       )}
       <g className="stroke">{sym.body}</g>
+      {segs && <SevenSegmentGlyph c={c} segs={segs} x={110} y={85} scale={0.38} />}
       <text x={lx} y={ly} textAnchor={anchor} className="ref">{c.ref}</text>
       <text x={lx} y={ly + 15} textAnchor={anchor} className="val">{c.value}</text>
       {led && (

@@ -1,9 +1,10 @@
-import { HOLE_BY_ID } from './holes';
+import { holeStrip } from './holes';
 
 const PALETTE = ['#2a9d8f', '#e76f51', '#7b5cd6', '#e9a400', '#3a86ff',
   '#d6336c', '#52a447', '#c2185b', '#00897b', '#8d6e63'];
 
-// Every breadboard strip is a conductor; jumper wires join two strips.
+// Every breadboard strip is a conductor (strips are per board); jumper wires join two strips,
+// on one board or across boards.
 // Returns the nets plus a lookup from `${componentId}:${pinIndex}` to its net.
 export function buildNetlist(components) {
   const parent = new Map();
@@ -14,7 +15,7 @@ export function buildNetlist(components) {
   const add = s => { if (!parent.has(s)) parent.set(s, s); };
 
   for (const c of components) {
-    const strips = c.pins.map(id => HOLE_BY_ID.get(id).strip);
+    const strips = c.pins.map(holeStrip);
     strips.forEach(add);
     if (c.type === 'wire') parent.set(find(strips[0]), find(strips[1]));
   }
@@ -22,7 +23,7 @@ export function buildNetlist(components) {
   const groups = new Map();
   for (const c of components)
     c.pins.forEach((id, pin) => {
-      const root = find(HOLE_BY_ID.get(id).strip);
+      const root = find(holeStrip(id));
       if (!groups.has(root)) groups.set(root, []);
       groups.get(root).push({ comp: c, pin });
     });

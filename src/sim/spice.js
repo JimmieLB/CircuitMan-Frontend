@@ -1,4 +1,5 @@
-import { PARTS, ledColorName } from '../circuit/parts';
+import { PARTS, ledColorName, SEG7_PINS, SEG7_COMMON, seg7Anode } from '../circuit/parts';
+import { parseChip, chipLines } from './logic';
 
 // Diode models tuned for a typical forward voltage at ~10 mA.
 const LED_MODELS = {
@@ -28,11 +29,14 @@ export function parseValue(text) {
   return Number(m[1]) * (unit ? SCALE[unit] : 1);
 }
 
-// Turns the circuit into an ngspice operating-point deck.
+// Turns the circuit into an ngspice deck (without the analysis line).
 // Returns { off } when there's nothing to simulate, { error } when the circuit
 // can't be simulated, otherwise the deck plus how to map results back to parts.
+// Capacitors are kept separate: they're the circuit's state, so each transient
+// step writes them out with the voltage they ended the previous step with.
+// Logic chips add hidden capacitors (`hidden: true`) that hold each gate's state.
 export function buildDeck(components, netlist) {
-  const lines = ['* breadboard circuit'], warnings = [], leds = [], supplies = [];
+  const lines = ['* breadboard circuit'], warnings = [], leds = [], supplies = [], caps = [], chips = [];
   const nodes = new Map(netlist.nets.map(net => [net.name, net.name === 'GND' ? '0' : net.name.toLowerCase()]));
   const ledColors = new Set();
 
@@ -55,7 +59,7 @@ export function buildDeck(components, netlist) {
       }
       case 'capacitor': {
         const v = value();
-        if (v !== null) lines.push(`C${i} ${n(0)} ${n(1)} ${v}`);
+        if (v !== null) caps.push({ id: c.id, el: `C${i}`, a: n(0), b: n(1), farads: v });
         break;
       }
       case 'battery': {
@@ -89,6 +93,32 @@ export function buildDeck(components, netlist) {
       case 'transistor':
         lines.push(`Q${i} ${n(2)} ${n(1)} ${n(0)} ${/pnp/i.test(c.value) ? 'QPNP' : 'QNPN'}`);
         break;
+      case 'seg7': {
+        // Eight LEDs sharing a common pin (cathode or anode); the two COM pins are joined inside.
+        const color = ledColorName(c.value);
+        ledColors.add(color);
+        const anode = seg7Anode(c.value), com = n(SEG7_COMMON[0]);
+        lines.push(`R${i}com ${com} ${n(SEG7_COMMON[1])} 0.01`);
+        for (const [seg, pin] of Object.entries(SEG7_PINS)) {
+          const [from, to] = anode ? [com, n(pin)] : [n(pin), com];
+          lines.push(`VS${i}${seg} ${from} x${i}${seg} 0`, `D${i}${seg} x${i}${seg} ${to} LED_${color}`);
+          leds.push({ id: `${c.id}#${seg}`, el: `vs${i}${seg}` });
+        }
+        break;
+      }
+      case 'ic_dip14': {
+        const chip = parseChip(c.value);
+        if (!chip) {
+          warnings.push(`${name}: "${c.value}" isn't a logic chip the simulator knows (e.g. 74HC00, 74LS04, CD4011), so it's left out.`);
+          break;
+        }
+        const id = `ic${i}`;
+        const { lines: chipSpice, states, vcc, gnd, vmin } = chipLines(chip, k => n(k - 1), id, i);
+        lines.push(...chipSpice);
+        for (const st of states) caps.push({ id: `${c.id}#${st.key}`, el: `C${id}${st.key}`, a: st.node, b: '0', farads: st.farads, hidden: true });
+        chips.push({ name, vcc, gnd, vmin });
+        break;
+      }
       default:
         warnings.push(`${name}: ${PARTS[c.type].label} isn't simulated yet.`);
     }
@@ -100,18 +130,60 @@ export function buildDeck(components, netlist) {
   lines.push('.model QNPN NPN(BF=150)', '.model QPNP PNP(BF=150)');
   // 1 GΩ to ground on every node so unconnected parts don't make the matrix singular
   for (const node of nodes.values()) if (node !== '0') lines.push(`RSH_${node} ${node} 0 1e9`);
-  lines.push('.op', '.end');
 
-  return { netlist: lines.join('\n'), nodes, leds, supplies, warnings };
+  const circuit = lines.join('\n');
+  // Identifies the circuit itself; charge on the capacitors isn't part of it.
+  const key = [circuit, ...caps.map(c => `${c.el} ${c.a} ${c.b} ${c.farads}`)].join('\n');
+  return { key, circuit, caps, chips, nodes, leds, supplies, warnings };
+}
+
+// DC operating point: capacitors are open circuits. Used when there are none.
+export function opDeck(deck) {
+  return [deck.circuit, ...deck.caps.map(c => `${c.el} ${c.a} ${c.b} ${c.farads}`), '.op', '.end'].join('\n');
+}
+
+// Transient run of `dt` seconds from `state` (as readResult returns it):
+// each capacitor, hidden ones too, starts at its voltage there (missing =
+// uncharged), and every other node starts where the last step left it
+// ("@node" entries), which keeps the solver from having to find its way back
+// to the same answer through a high-gain logic loop. UIC skips the operating
+// point so these starting values are used as given.
+//
+// The step size ngspice starts with comes from the first .tran number. It
+// has to be well under a logic gate's 1 µs delay: a longer first step turns a
+// gate's state into an algebraic equation, and a bistable one (a Schmitt
+// trigger, a latch) can then land on the wrong answer and lose its memory.
+// ngspice doubles its step from there, so this costs only a few extra points.
+const FIRST_STEP = 1e-8;
+export function tranDeck(deck, state, dt) {
+  const caps = deck.caps.map(c => `${c.el} ${c.a} ${c.b} ${c.farads} IC=${state.get(c.id) ?? 0}`);
+  // A user capacitor's own starting voltage decides its nodes; don't fight it.
+  const capNodes = new Set(deck.caps.filter(c => !c.hidden).flatMap(c => [c.a, c.b]));
+  const ics = [...new Set(deck.nodes.values())]
+    .filter(node => node !== '0' && !capNodes.has(node) && state.has(`@${node}`))
+    .map(node => `v(${node})=${state.get(`@${node}`)}`);
+  return [deck.circuit, ...caps, ...(ics.length ? [`.ic ${ics.join(' ')}`] : []),
+    `.tran ${FIRST_STEP} ${dt} 0 ${dt / 20} UIC`, '.end'].join('\n');
 }
 
 export function readResult(deck, result, errors) {
   if (!result.data.length)
     return { status: 'error', message: errors.find(e => e.trim()) ?? 'The simulation failed.', warnings: deck.warnings };
 
-  const vals = new Map(result.data.map(d => [d.name, d.values[0]]));
-  const nets = new Map([...deck.nodes].map(([name, node]) =>
-    [name, node === '0' ? 0 : vals.get(`v(${node})`) ?? 0]));
+  // An operating point has one value per vector; a transient run ends on its last.
+  const vals = new Map(result.data.map(d => [d.name, d.values[d.values.length - 1]]));
+  const volts = node => (node === '0' ? 0 : vals.get(`v(${node})`) ?? 0);
+  const nets = new Map([...deck.nodes].map(([name, node]) => [name, volts(node)]));
+  // `state` is what the next step starts from: every capacitor's voltage (by id)
+  // and every node's ("@node"). `caps` is just the user's capacitors.
+  const state = new Map(deck.caps.map(c => [c.id, volts(c.a) - volts(c.b)]));
+  for (const node of deck.nodes.values()) if (node !== '0') state.set(`@${node}`, volts(node));
+  const caps = new Map(deck.caps.filter(c => !c.hidden).map(c => [c.id, state.get(c.id)]));
+  const warnings = [...deck.warnings];
+  for (const chip of deck.chips) {
+    const v = volts(chip.vcc) - volts(chip.gnd);
+    if (v < chip.vmin) warnings.push(`${chip.name} isn't powered (${v.toFixed(1)} V across it): pin 14 goes to +, pin 7 to −.`);
+  }
   const leds = new Map(deck.leds.map(({ id, el }) => {
     const current = vals.get(`i(${el})`) ?? 0;
     return [id, {
@@ -124,7 +196,7 @@ export function readResult(deck, result, errors) {
   // ngspice reports source current flowing in at +, so flip it to "current supplied"
   const supplies = new Map(deck.supplies.map(({ id, el }) => [id, -(vals.get(`i(${el})`) ?? 0)]));
 
-  return { status: 'ok', nets, leds, supplies, warnings: deck.warnings };
+  return { status: 'ok', nets, leds, supplies, caps, state, warnings };
 }
 
 export function formatCurrent(a) {

@@ -11,8 +11,9 @@ import { PITCH } from '../helpers/board';
 //    fall away, and the channel is a whole number of rows, so both halves land on the grid.
 // 4. The board is where the rows go 5 full, 2 empty, 5 full, across 63 columns.
 // 5. A RANSAC homography from those holes to their board positions is the calibration.
-// Like corner calibration, it assumes the board is upright in the frame: row a at the top,
-// column 1 on the left. Only terminal holes are used, so the rail layout doesn't matter.
+// Like corner calibration, it assumes the board is level in the frame with column 1 on the left
+// (warpBoard then flips it top to bottom; the rows are symmetric, so the fit is unaffected).
+// Only terminal holes are used, so the rail layout doesn't matter.
 
 const ROWS = 'abcdefghij';
 const ROW_OFFSETS = [...ROWS].map(r => Math.round((HOLE_BY_ID.get(`${r}1`).y - HOLE_BY_ID.get('a1').y) / PITCH));
